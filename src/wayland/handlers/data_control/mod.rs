@@ -1,0 +1,131 @@
+// Copyright (C) 2026 yukkkk1
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// src/wayland/handlers/data_control/mod.rs
+
+pub mod device;
+pub mod source;
+
+use wayland_client::{Dispatch, Connection, QueueHandle};
+use wayland_protocols::ext::data_control::v1::client::{
+    ext_data_control_manager_v1::{self, ExtDataControlManagerV1},
+    ext_data_control_offer_v1::{self, ExtDataControlOfferV1},
+};
+use std::os::fd::{FromRawFd, OwnedFd, AsRawFd};
+use std::alloc::{alloc, dealloc, Layout};
+use crate::wayland::state::{WaylandState, OfferData};
+use crate::core::constants::*;
+
+/// RAII wrapper for page-aligned memory allocation.
+/// Ensures optimal performance for kernel-to-user data transfers.
+pub struct AlignedBuffer {
+    ptr: *mut u8,
+    layout: Layout,
+}
+
+impl AlignedBuffer {
+    pub fn new(size: usize, align: usize) -> Self {
+        let layout = Layout::from_size_align(size, align).expect("invalid alignment layout");
+        let ptr = unsafe { alloc(layout) };
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        Self { ptr, layout }
+    }
+
+    pub fn as_mut_slice<'a>(&mut self) -> &'a mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.layout.size()) }
+    }
+}
+
+impl Drop for AlignedBuffer {
+    fn drop(&mut self) {
+        unsafe { dealloc(self.ptr, self.layout); }
+    }
+}
+
+/// F_SETPIPE_SZ: Linux-specific fcntl command to change pipe capacity.
+const F_SETPIPE_SZ: libc::c_int = 1031;
+/// Default capacity for binary data pipes (4MB) to prevent stalls.
+const PIPE_CAPACITY_IMAGE: libc::c_int = 4 * 1024 * 1024;
+
+/// Evaluates if the requested MIME type is compatible with the target type.
+/// Supports category-level matching for text and image groups.
+fn mime_is_compatible(requested: &str, target: &str) -> bool {
+    if requested == target { return true; }
+    if requested.starts_with("text/") && target.starts_with("text/") { return true; }
+    if requested.starts_with("image/") && target.starts_with("image/") { return true; }
+    
+    const TEXT_ALIASES: &[&str] = &[
+        "text/plain",
+        "text/plain;charset=utf-8",
+        "text/plain;charset=UTF-8",
+        "UTF8_STRING",
+        "STRING",
+        "TEXT",
+        "COMPOUND_TEXT",
+    ];
+    let req_is_text_alias = TEXT_ALIASES.contains(&requested);
+    let tgt_is_text_alias = TEXT_ALIASES.contains(&target) || target.starts_with("text/");
+    
+    req_is_text_alias && tgt_is_text_alias
+}
+
+/// Checks if any offered MIME type matches the sensitive hints blacklist.
+fn is_sensitive(mimes: &[String]) -> bool {
+    SENSITIVE_MIME_HINTS.iter().any(|&hint| {
+        mimes.iter().any(|m| m.to_lowercase().contains(hint))
+    })
+}
+
+/// Creates a Unix pipe and configures it for safe, high-throughput I/O.
+/// Implements immediate RAII wrapping to prevent FD leaks during setup failures.
+fn make_pipe(is_image: bool) -> Option<(std::fs::File, OwnedFd)> {
+    let mut fds = [0i32; 2];
+    
+    // Attempt to create the raw pipe
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
+        return None; 
+    }
+
+    // RAII Safety: Immediately wrap raw FDs.
+    // If the function returns early after this point, FDs are automatically closed.
+    let read_fd = unsafe { OwnedFd::from_raw_fd(fds[0]) };
+    let write_fd = unsafe { OwnedFd::from_raw_fd(fds[1]) };
+
+    unsafe {
+        for fd in &[read_fd.as_raw_fd(), write_fd.as_raw_fd()] {
+            let flags = libc::fcntl(*fd, libc::F_GETFL, 0);
+            if flags >= 0 {
+                // Force blocking mode to ensure complete data transfer for large buffers
+                libc::fcntl(*fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+            }
+        }
+
+        if is_image {
+            // Increase buffer size to prevent deadlock when transferring massive bitmaps
+            let _ = libc::fcntl(read_fd.as_raw_fd(), F_SETPIPE_SZ, PIPE_CAPACITY_IMAGE);
+        }
+    }
+
+    // Convert read side to File for standard I/O compatibility
+    Some((std::fs::File::from(read_fd), write_fd))
+}
+
+// --- ExtDataControlManagerV1 ---
+
+impl Dispatch<ExtDataControlManagerV1, ()> for WaylandState {
+    fn event(_: &mut Self, _: &ExtDataControlManagerV1, _: ext_data_control_manager_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+// --- ExtDataControlOfferV1 ---
+
+impl Dispatch<ExtDataControlOfferV1, OfferData> for WaylandState {
+    fn event(_: &mut Self, _: &ExtDataControlOfferV1, ev: ext_data_control_offer_v1::Event, data: &OfferData, _: &Connection, _: &QueueHandle<Self>) {
+        if let ext_data_control_offer_v1::Event::Offer { mime_type } = ev
+            && let Ok(mut mimes) = data.mimes.lock()
+            && !mimes.contains(&mime_type) {
+            mimes.push(mime_type);
+        }
+    }
+}

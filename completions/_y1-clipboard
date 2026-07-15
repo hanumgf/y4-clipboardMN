@@ -1,0 +1,90 @@
+#compdef y1-clipboard
+
+_y1_clipboard() {
+    local context state state_descr line
+    typeset -A opt_args
+
+    # 1. Define subcommands with concise technical descriptions
+    local -a _y1_subcommands
+    _y1_subcommands=(
+        'daemon:Monitor clipboard changes in background'
+        'list:Display history metadata records'
+        'search:Keyword scan across text history'
+        'copy-to:Restore a history entry to system clipboard'
+        'show:Inspect record content or dump raw bytes'
+        'store:Ingest stdin to database and sync clipboard'
+        'paste-from:Stream system clipboard directly to stdout'
+        'delete:Physically remove a specific record'
+        'wipe:Purge all history and optimize storage'
+        'version:Display version information'
+        'help:Display help information'
+    )
+
+    # 2. Global options dispatcher
+    # -s: Allow short option stacking (e.g., -RA, -vi)
+    # -S: Enforce strict option parsing (do not complete options after positionals)
+    _arguments -s -S \
+        '(-h --help)'{-h,--help}'[Show help information]' \
+        '(-V --version)'{-V,--version}'[Show version information]' \
+        '1: :->cmds' \
+        '*:: :->args'
+
+    case $state in
+        cmds)
+            _describe -t commands 'y1-clipboard commands' _y1_subcommands
+            ;;
+        args)
+            case $words[1] in
+                daemon)
+                    _arguments -s -S \
+                        '(-v --verbose)'{-v,--verbose}'[Enable detailed event logging]'
+                    ;;
+                list)
+                    _arguments -s -S \
+                        '(-R --raw)'{-R,--raw}'[Clean output for scripting]' \
+                        '(-A --full)'{-A,--full}'[Display all history entries]' \
+                        '(-i --id)'{-i,--id}'[Display and use stable database IDs]' \
+                        '1:range (e.g. 0-50):'
+                    ;;
+                search)
+                    _arguments -s -S \
+                        '(-R --raw)'{-R,--raw}'[Clean output for scripting]' \
+                        '(-i --id)'{-i,--id}'[Output persistent database IDs]' \
+                        '1:query text:'
+                    ;;
+                show)
+                    _arguments -s -S \
+                        '(-R --raw)'{-R,--raw}'[Output exact binary data]' \
+                        '(-i --id)'{-i,--id}'[Target entry by stable database ID]' \
+                        '1:id or index:'
+                    ;;
+                copy-to)
+                    _arguments -s -S \
+                        '(-v --verbose)'{-v,--verbose}'[Log synchronization events]' \
+                        '(-i --id)'{-i,--id}'[Target entry by stable database ID]' \
+                        '1:id or index:'
+                    ;;
+                delete)
+                    _arguments -s -S \
+                        '(-i --id)'{-i,--id}'[Target entry by stable database ID]' \
+                        '1:id or index:'
+                    ;;
+                wipe)
+                    _arguments -s -S \
+                        '(-f --force)'{-f,--force}'[Bypass confirmation prompt]'
+                    ;;
+                store)
+                    _arguments -s -S \
+                        '(-v --verbose)'{-v,--verbose}'[Enable transfer logging]' \
+                        '1:mime type:(text/plain image/png image/jpeg image/webp image/gif text/html)'
+                    ;;
+                paste-from)
+                    _arguments \
+                        '1:mime type:(text/plain image/png image/jpeg image/webp image/gif text/html)'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_y1_clipboard "$@"

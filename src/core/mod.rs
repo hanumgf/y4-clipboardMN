@@ -1,0 +1,91 @@
+// Copyright (C) 2026 yukkkk1
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// src/core/mod.rs
+
+pub mod constants;
+
+use std::path::{Path, PathBuf};
+use std::fs::{self, DirBuilder};
+use std::os::unix::fs::DirBuilderExt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use crate::core::constants::{DB_DIR_NAME, DB_FILE_NAME};
+
+pub use self::constants::get_socket_path;
+
+pub static SIG_EXIT: AtomicBool = AtomicBool::new(false);
+
+/// Securely resolve and initialize the database path following XDG Data Home specs.
+/// Returns PathBuf to ensure platform-native path encoding stability.
+pub fn get_db_path() -> PathBuf {
+    let mut path = if let Ok(xdg_data) = std::env::var("XDG_DATA_HOME") {
+        PathBuf::from(xdg_data)
+    } else if let Ok(home) = std::env::var("HOME") {
+        let mut p = PathBuf::from(home);
+        p.push(".local");
+        p.push("share");
+        p
+    } else {
+        PathBuf::from(".")
+    };
+
+    path.push(DB_DIR_NAME);
+
+    // Security: Explicitly enforce 700 (rwx------) permissions on directory creation.
+    // This prevents other users from accessing the clipboard history storage.
+    if !path.exists() {
+        let mut builder = DirBuilder::new();
+        builder.recursive(true).mode(0o700);
+        let _ = builder.create(&path);
+    }
+
+    path.push(DB_FILE_NAME);
+    path
+}
+
+/// Securely resolve the cache directory for binary payloads.
+pub fn get_cache_dir() -> std::path::PathBuf {
+    let mut path = if let Ok(xdg_cache) = std::env::var("XDG_CACHE_HOME") {
+        std::path::PathBuf::from(xdg_cache)
+    } else if let Ok(home) = std::env::var("HOME") {
+        let mut p = std::path::PathBuf::from(home);
+        p.push(".cache");
+        p
+    } else {
+        std::path::PathBuf::from(".")
+    };
+
+    path.push(DB_DIR_NAME); // "y1-clipboard"
+
+    if !path.exists() {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true).mode(0o700);
+        let _ = builder.create(&path);
+    }
+    path
+}
+
+pub fn request_exit() {
+    SIG_EXIT.store(true, Ordering::SeqCst);
+}
+
+pub fn is_exiting() -> bool {
+    SIG_EXIT.load(Ordering::SeqCst)
+}
+
+/// RAII guard for the IPC socket, ensuring cleanup using robust PathBuf.
+pub struct SocketGuard {
+    path: PathBuf,
+}
+
+impl SocketGuard {
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        Self { path: path.as_ref().to_path_buf() }
+    }
+}
+
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}

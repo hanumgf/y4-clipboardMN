@@ -1,0 +1,36 @@
+[package]
+name = "y4-clipboard"
+version = "1.0.0"
+edition = "2024"
+description = "A robust, unified clipboard manager for Wayland with SQLite storage."
+license = "GPL-3.0-or-later"
+
+[dependencies]
+# --- Wayland Core ---
+wayland-client = "0.31.14"
+wayland-protocols = { version = "0.32.12", features = ["client", "staging"] }
+
+# --- Storage ---
+# 'bundled' ensures standalone compilation and cross-environment robustness
+# without relying on system-installed SQLite packages.
+rusqlite = { version = "0.40.0", default-features = false, features = ["bundled", "modern_sqlite"] }
+
+# --- Utilities ---
+# For robust pipe communication and avoiding runtime deadlocks.
+libc = "0.2.186"
+# For payload deduplication via unique content fingerprints.
+md5 = "0.8.0"
+# For calculating terminal layout bounds accurately (supports full/half-width).
+unicode-width = "0.2.2"
+# For file path percent-encoding/decoding.
+percent-encoding = "2.3.2"
+# For handling terminal signals (e.g., SIGINT/Ctrl+C).
+ctrlc = "3.5.2"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
+panic = "abort"
+
