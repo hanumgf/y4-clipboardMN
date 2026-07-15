@@ -4,8 +4,8 @@
 // src/core/constants.rs
 
 // --- System & Storage Configuration ---
-pub const DB_DIR_NAME:  &str = "y1-clipboard";
-pub const DB_FILE_NAME: &str = "y1_clipboard.sqlite";
+pub const DB_DIR_NAME:  &str = "y4-clipboard";
+pub const DB_FILE_NAME: &str = "y4_clipboard.sqlite";
 pub const MAX_HISTORY: usize = 256;
 pub const SQLITE_TIMEOUT_MS: u64 = 5000;
 
@@ -69,7 +69,7 @@ pub const INTERFACE_SEAT:    &str = "wl_seat";
 pub const LOG_INFO:  &str = "info: ";
 pub const LOG_ERROR: &str = "error: ";
 
-pub const MSG_DAEMON_START: &str = "starting y1-clipboard daemon...";
+pub const MSG_DAEMON_START: &str = "starting y4-clipboard daemon...";
 pub const MSG_DAEMON_STOP:  &str = "daemon process terminated.";
 pub const MSG_WAYLAND_CONN_FAIL: &str = "failed to connect to wayland compositor. is DISPLAY/WAYLAND_DISPLAY set?";
 
@@ -90,7 +90,7 @@ pub fn log_protocol_bound(interface: &str) -> String {
 }
 
 /// Path to the Unix Domain Socket for Inter-Process Communication.
-pub const SOCKET_PATH: &str = "/tmp/y1-clipboard.sock";
+pub const SOCKET_PATH: &str = "/tmp/y4-clipboard.sock";
 
 /// Returns the user-specific socket path to prevent multi-user conflicts.
 pub fn get_socket_path() -> String {

@@ -55,7 +55,7 @@ pub fn get_cache_dir() -> std::path::PathBuf {
         std::path::PathBuf::from(".")
     };
 
-    path.push(DB_DIR_NAME); // "y1-clipboard"
+    path.push(DB_DIR_NAME); // "y4-clipboard"
 
     if !path.exists() {
         let mut builder = fs::DirBuilder::new();

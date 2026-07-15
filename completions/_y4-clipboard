@@ -1,12 +1,12 @@
-#compdef y1-clipboard
+#compdef y4-clipboard
 
-_y1_clipboard() {
+_y4_clipboard() {
     local context state state_descr line
     typeset -A opt_args
 
     # 1. Define subcommands with concise technical descriptions
-    local -a _y1_subcommands
-    _y1_subcommands=(
+    local -a _y4_subcommands
+    _y4_subcommands=(
         'daemon:Monitor clipboard changes in background'
         'list:Display history metadata records'
         'search:Keyword scan across text history'
@@ -31,7 +31,7 @@ _y1_clipboard() {
 
     case $state in
         cmds)
-            _describe -t commands 'y1-clipboard commands' _y1_subcommands
+            _describe -t commands 'y4-clipboard commands' _y4_subcommands
             ;;
         args)
             case $words[1] in
@@ -87,4 +87,4 @@ _y1_clipboard() {
     esac
 }
 
-_y1_clipboard "$@"
+_y4_clipboard "$@"
