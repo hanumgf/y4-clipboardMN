@@ -15,14 +15,17 @@ pub struct ClipboardDb {
 }
 
 impl ClipboardDb {
-    /// Open the database with optimized configurations and high-performance indexing.
-    pub fn open() -> Self {
+    /// Open the database with optimized configurations. 
+    /// Returns Result to allow the caller to handle connection failures gracefully.
+    pub fn open() -> Result<Self, String> {
         let db_path = crate::core::get_db_path();
         let _ = crate::core::get_cache_dir(); 
 
-        let conn = Connection::open(&db_path).expect("failed to open sqlite connection");
+        // Attempt connection with error mapping
+        let conn = Connection::open(&db_path)
+            .map_err(|e| format!("sqlite connection failed: {}", e))?;
 
-        // Secure file permissions (600)
+        // Secure file permissions
         if let Ok(metadata) = fs::metadata(&db_path) {
             let mut perms = metadata.permissions();
             if perms.mode() != 0o600 {
@@ -31,17 +34,17 @@ impl ClipboardDb {
             }
         }
 
-        // Apply performance-critical PRAGMA settings
+        // Apply PRAGMA settings
         conn.busy_timeout(std::time::Duration::from_millis(SQLITE_TIMEOUT_MS)).ok();
-        conn.execute_batch("
+        let _ = conn.execute_batch("
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA temp_store = MEMORY;
             PRAGMA mmap_size = 268435456;
             PRAGMA cache_size = -64000;
-        ").ok();
+        ");
 
-        // Initialize schema with UNIQUE constraint on hash for hardware-level deduplication
+        // Schema initialization
         conn.execute(
             "CREATE TABLE IF NOT EXISTS clipboard (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,16 +55,14 @@ impl ClipboardDb {
                 content BLOB,
                 hash TEXT UNIQUE
             )", [],
-        ).expect("failed to initialize schema");
+        ).map_err(|e| format!("schema initialization failed: {}", e))?;
 
-        // Index for fast MRU sorting
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ts ON clipboard(timestamp)", []).ok();
 
-        Self { 
-            // Fix: Correct conversion from PathBuf to String
+        Ok(Self { 
             path: db_path.to_string_lossy().into_owned(), 
             conn 
-        }
+        })
     }
 
     /// Public wrapper for raw data insertion.
