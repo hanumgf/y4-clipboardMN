@@ -1,5 +1,5 @@
 /*
- * y1-clipboardMN: A Wayland clipboard manager for power users.
+ * y4-clipboardMN: A Wayland clipboard manager for power users.
  * Copyright (C) 2026  yukkkk1
  *
  * This program is free software: you can redistribute it and/or modify
@@ -39,30 +39,28 @@ fn main() {
     #[cfg(target_os = "linux")]
     trim_memory();
 
-    // Security & Stability: Ignore SIGPIPE to prevent the daemon from being
-    // terminated by the OS when a pipe is closed prematurely by a receiver.
     unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN); }
 
-    // 1. Initialize signal handler for graceful shutdown
     ctrlc::set_handler(move || {
         if crate::core::is_exiting() {
-            // Emergency Exit: Force terminate if Ctrl+C is pressed again
-            eprintln!("\n{}forceful termination initiated.", LOG_ERROR);
             std::process::exit(1);
         }
-
-        // Signal the primary loop to wrap up operations
         crate::core::request_exit();
-
         if let Ok(mut stream) = UnixStream::connect(crate::core::get_socket_path()) {
             let _ = stream.write_all(&[IPC_CMD_EXIT]);
         }
-
-        // Provide immediate feedback to the user
-        eprintln!("\n{}termination signal received. closing storage safely...", LOG_INFO);
     }).expect("failed to set signal handler");
 
     let args: Vec<String> = std::env::args().collect();
-    let db = storage::ClipboardDb::open();
+
+    // Robustness: Handle database open errors without panicking.
+    let db = match storage::ClipboardDb::open() {
+        Ok(database) => database,
+        Err(e) => {
+            eprintln!("{}critical: {}", LOG_ERROR, e);
+            std::process::exit(1);
+        }
+    };
+
     cli::handle_command(&args, db);
 }
