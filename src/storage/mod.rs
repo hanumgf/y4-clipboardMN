@@ -7,10 +7,10 @@ use rusqlite::{params, Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use sha3::{Sha3_256, Digest}; 
 use crate::core::constants::*;
 
 pub struct ClipboardDb {
-    pub path: String,
     conn: Connection,
 }
 
@@ -59,15 +59,14 @@ impl ClipboardDb {
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ts ON clipboard(timestamp)", []).ok();
 
-        Ok(Self { 
-            path: db_path.to_string_lossy().into_owned(), 
-            conn 
-        })
+        Ok(Self { conn })
     }
 
     /// Public wrapper for raw data insertion.
     pub fn insert_raw(&mut self, mime: &str, data: &[u8]) -> Result<()> {
-        let hash = format!("{:x}", md5::compute(data));
+        let mut hasher = Sha3_256::new();
+        hasher.update(data);
+        let hash = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
         self.insert_with_hash(mime, data, &hash)
     }
 
