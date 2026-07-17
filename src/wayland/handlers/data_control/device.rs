@@ -106,12 +106,21 @@ impl Dispatch<ExtDataControlDeviceV1, ()> for WaylandState {
                         if let Some(m) = detected { final_mime = m.to_string(); }
                     }
 
-                    // Dispatch job to the persistent database worker thread
+                    // SHA3-256 finalize() returns a GenericArray. 
+                    let hash = hasher.finalize()
+                        .iter()
+                        .map(|b| format!("{:02x}", b))
+                        .collect::<String>();
+
+                    // Send the completed payload and its SHA3 fingerprint to the persistent worker.
                     let _ = job_tx_clone.send(ClipboardJob {
                         mime: final_mime,
                         data: payload,
-                        hash: format!("{:x}", hash_context.finalize()),
+                        hash,
                     });
+
+                    #[cfg(target_os = "linux")]
+                    unsafe { libc::malloc_trim(0); }
                 });
             } else {
                 // Action Mode: Synchronous read for immediate CLI processing
