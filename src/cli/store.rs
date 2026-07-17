@@ -6,7 +6,7 @@
 use crate::storage::ClipboardDb;
 use crate::core::constants::*;
 use crate::cli::utils::ArgContext;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
 /// Ingest data from stdin, persist to database, and synchronize to system clipboard.
 pub fn run(args: &[String], db: &mut ClipboardDb) {
@@ -56,9 +56,9 @@ pub fn run(args: &[String], db: &mut ClipboardDb) {
                 // IPC: Notify the running daemon to synchronize this new ID
                 use std::os::unix::net::UnixStream;
                 if let Ok(mut stream) = UnixStream::connect(crate::core::get_socket_path()) {
-                    use std::io::Write;
                     let mut payload = vec![IPC_CMD_RESTORE];
                     payload.extend_from_slice(real_id.to_string().as_bytes());
+                    payload.push(IPC_DELIMITER);
                     let _ = stream.write_all(&payload);
                     let _ = stream.flush();
                 }

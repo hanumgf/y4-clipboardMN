@@ -36,9 +36,9 @@ pub fn run(args: &[String], db: &mut ClipboardDb) {
     // 4. One-shot IPC: Send ID to daemon via socket
     match UnixStream::connect(crate::core::get_socket_path()) {
         Ok(mut stream) => {
-            // Write 1-byte command (RESTORE) followed by the ID
             let mut payload = vec![IPC_CMD_RESTORE];
             payload.extend_from_slice(real_id.to_string().as_bytes());
+            payload.push(IPC_DELIMITER);
             
             if stream.write_all(&payload).is_ok() {
                 let _ = stream.flush();
@@ -49,5 +49,4 @@ pub fn run(args: &[String], db: &mut ClipboardDb) {
             eprintln!("{}daemon is not running.", LOG_ERROR);
         }
     }
-
 }
