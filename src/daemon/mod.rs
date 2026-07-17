@@ -5,7 +5,7 @@
 
 use crate::storage::ClipboardDb;
 use crate::wayland;
-use crate::wayland::state::WaylandState;
+use crate::wayland::state::{WaylandState, ClipboardJob};
 use crate::core::constants::*;
 use crate::core::SocketGuard;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -13,14 +13,13 @@ use std::io::{Read, Write};
 use std::fs;
 use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
+use std::sync::mpsc;
 
 /// Initialize and run the clipboard daemon with a unified, high-performance event loop.
-pub fn start_daemon(db: ClipboardDb, verbose: bool) {
+pub fn start_daemon(mut db: ClipboardDb, verbose: bool) {
     let socket_path = crate::core::get_socket_path();
 
-    // Protocol: Signal handover if an existing instance is found.
     if let Ok(mut stream) = UnixStream::connect(&socket_path) {
-        if verbose { println!("{}handover requested from existing instance.", LOG_INFO); }
         let _ = stream.write_all(&[IPC_CMD_EXIT]);
         std::thread::sleep(Duration::from_millis(RECONNECT_DELAY_MS));
     }
@@ -28,25 +27,42 @@ pub fn start_daemon(db: ClipboardDb, verbose: bool) {
     let _ = fs::remove_file(&socket_path);
     let listener = UnixListener::bind(&socket_path).expect("failed to bind IPC socket");
     let _ = listener.set_nonblocking(true);
-    
     let _guard = SocketGuard::new(socket_path);
+
+    // Initialize Database Worker Thread
+    let (job_tx, job_rx) = mpsc::channel::<ClipboardJob>();
+    let is_verbose = verbose;
+
+    std::thread::spawn(move || {
+        // The worker thread owns the mutable reference to the database.
+        while let Ok(job) = job_rx.recv() {
+            if let Err(e) = db.insert_with_hash(&job.mime, &job.data, &job.hash) {
+                eprintln!("error: worker failed to persist data: {}", e);
+            } else if is_verbose {
+                println!("{}", log_save(&job.mime, job.data.len()));
+            }
+            #[cfg(target_os = "linux")]
+            unsafe { libc::malloc_trim(0); }
+        }
+    });
 
     let (conn, mut event_queue) = wayland::create_connection();
     let qh = event_queue.handle();
     let _registry = conn.display().get_registry(&qh, ());
 
-    let last_stored = db.get_latest_data().unwrap_or_default();
-    let mut state = WaylandState::new_daemon(db, verbose);
-    state.last_data = last_stored;
+    // Initialize state with the job sender and a secondary DB handle for reads.
+    let read_db = ClipboardDb::open().expect("failed to open read-only db handle");
+    let mut state = WaylandState::new_daemon(read_db, job_tx, verbose);
+    
+    // Pre-load last data for deduplication.
+    state.last_data = state.db.as_ref().and_then(|d| d.lock().ok()).and_then(|d| d.get_latest_data()).unwrap_or_default();
     state.target_mime = DEFAULT_MIME.to_string();
 
     if event_queue.roundtrip(&mut state).is_err() { return; }
     if let (Some(manager), Some(seat)) = (&state.manager, &state.seat) {
         state.device = Some(manager.get_data_device(seat, &qh, ()));
         let _ = conn.flush();
-    } else {
-        return;
-    }
+    } else { return; }
 
     println!("{}{}", LOG_INFO, MSG_DAEMON_START);
 
@@ -54,32 +70,20 @@ pub fn start_daemon(db: ClipboardDb, verbose: bool) {
         let _ = event_queue.dispatch_pending(&mut state);
         let _ = conn.flush();
 
-        let wayland_fd = conn.as_fd().as_raw_fd();
-        let socket_fd = listener.as_fd().as_raw_fd();
-
         let mut poll_fds = [
-            libc::pollfd { fd: wayland_fd, events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd: socket_fd,  events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: conn.as_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: listener.as_fd().as_raw_fd(),  events: libc::POLLIN, revents: 0 },
         ];
 
-        let poll_res = unsafe { libc::poll(poll_fds.as_mut_ptr(), 2, 500) };
-        if poll_res < 0 {
-            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted { break; }
-            continue;
-        }
+        if unsafe { libc::poll(poll_fds.as_mut_ptr(), 2, 500) } < 0 { continue; }
 
-        // 3. IPC Ingress Handling (Nested if-let for stability)
         if poll_fds[1].revents & libc::POLLIN != 0
-        &&let Ok((mut stream, _)) = listener.accept() {
-            const IPC_BUF_SIZE: usize = 1 + 20;
-            let mut buf = [0u8; IPC_BUF_SIZE]; 
+        && let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 32]; 
             if let Ok(n) = stream.read(&mut buf)
             && n > 0 {
                 match buf[0] {
-                    IPC_CMD_EXIT => {
-                        if verbose { println!("{}termination requested via IPC.", LOG_INFO); }
-                        crate::core::request_exit();
-                    }
+                    IPC_CMD_EXIT => crate::core::request_exit(),
                     IPC_CMD_RESTORE if n > 1 => {
                         let id_str = String::from_utf8_lossy(&buf[1..n]);
                         if let Ok(real_id) = id_str.trim().parse::<i64>() {
@@ -91,19 +95,10 @@ pub fn start_daemon(db: ClipboardDb, verbose: bool) {
             }
         }
 
-        // 4. Wayland Egress/Ingress Handling
-        let wayland_revents = poll_fds[0].revents;
-        if wayland_revents & (libc::POLLHUP | libc::POLLERR) != 0 {
-            break;
-        }
-
-        if wayland_revents & libc::POLLIN != 0
+        if poll_fds[0].revents & (libc::POLLHUP | libc::POLLERR) != 0 { break; }
+        if poll_fds[0].revents & libc::POLLIN != 0
         && let Some(guard) = event_queue.prepare_read() {
-            match guard.read() {
-                Ok(_) => {},
-                Err(wayland_client::backend::WaylandError::Io(ie)) if ie.kind() == std::io::ErrorKind::WouldBlock => {},
-                Err(_) => break,
-            }
+            let _ = guard.read();
         }
     }
 }
