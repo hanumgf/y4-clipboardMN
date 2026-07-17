@@ -9,7 +9,7 @@ use crate::wayland::state::{WaylandState, ClipboardJob};
 use crate::core::constants::*;
 use crate::core::SocketGuard;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::io::{Read, Write};
+use std::io::{BufRead, Write};
 use std::fs;
 use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
@@ -51,7 +51,7 @@ pub fn start_daemon(mut db: ClipboardDb, verbose: bool) {
     let _registry = conn.display().get_registry(&qh, ());
 
     // Initialize state with the job sender and a secondary DB handle for reads.
-    let read_db = ClipboardDb::open().expect("failed to open read-only db handle");
+    let read_db = ClipboardDb::open().expect("failed to open read-only database handle");
     let mut state = WaylandState::new_daemon(read_db, job_tx, verbose);
     
     // Pre-load last data for deduplication.
@@ -77,22 +77,26 @@ pub fn start_daemon(mut db: ClipboardDb, verbose: bool) {
 
         if unsafe { libc::poll(poll_fds.as_mut_ptr(), 2, 500) } < 0 { continue; }
 
+        // 3. IPC Ingress Handling
         if poll_fds[1].revents & libc::POLLIN != 0
-        && let Ok((mut stream, _)) = listener.accept() {
-            let mut buf = [0u8; 32]; 
-            if let Ok(n) = stream.read(&mut buf)
-            && n > 0 {
-                match buf[0] {
-                    IPC_CMD_EXIT => crate::core::request_exit(),
-                    IPC_CMD_RESTORE if n > 1 => {
-                        let id_str = String::from_utf8_lossy(&buf[1..n]);
-                        if let Ok(real_id) = id_str.trim().parse::<i64>() {
-                            handle_restore_request(&mut state, &qh, real_id, &conn);
+            && let Ok((stream, _)) = listener.accept() {
+                let mut reader = std::io::BufReader::new(stream);
+                let mut buf = Vec::new();
+
+                if reader.read_until(IPC_DELIMITER, &mut buf).is_ok()
+                    && buf.len() > 1 {
+                        let n = buf.len() - 1; 
+                        match buf[0] {
+                            IPC_CMD_EXIT => crate::core::request_exit(),
+                            IPC_CMD_RESTORE => {
+                                let id_str = String::from_utf8_lossy(&buf[1..n]);
+                                if let Ok(real_id) = id_str.trim().parse::<i64>() {
+                                    handle_restore_request(&mut state, &qh, real_id, &conn);
+                                }
+                            }
+                            _ => {}
                         }
-                    }
-                    _ => {}
                 }
-            }
         }
 
         if poll_fds[0].revents & (libc::POLLHUP | libc::POLLERR) != 0 { break; }
