@@ -19,7 +19,7 @@ rusqlite = { version = "0.40.0", default-features = false, features = ["bundled"
 # For robust pipe communication and avoiding runtime deadlocks.
 libc = "0.2.186"
 # For payload deduplication via unique content fingerprints.
-md5 = "0.8.0"
+sha3 = "0.12.0"
 # For calculating terminal layout bounds accurately (supports full/half-width).
 unicode-width = "0.2.2"
 # For file path percent-encoding/decoding.
