@@ -10,7 +10,7 @@ use wayland_protocols::ext::data_control::v1::client::{
     ext_data_control_manager_v1::ExtDataControlManagerV1,
     ext_data_control_source_v1::ExtDataControlSourceV1,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 pub struct OfferData {
     pub mimes: Arc<Mutex<Vec<String>>>,
@@ -21,6 +21,12 @@ pub struct SourceMetadata {
     pub data: Vec<u8>,
 }
 
+pub struct ClipboardJob {
+    pub mime: String,
+    pub data: Vec<u8>,
+    pub hash: String,
+}
+
 pub struct WaylandState {
     pub manager: Option<ExtDataControlManagerV1>,
     pub manager_id: Option<u32>,
@@ -28,6 +34,7 @@ pub struct WaylandState {
     pub seat_id: Option<u32>,
     pub device: Option<ExtDataControlDeviceV1>,
     pub db: Option<Arc<Mutex<ClipboardDb>>>,
+    pub job_tx: Option<mpsc::Sender<ClipboardJob>>,
     pub verbose: bool,
     pub target_mime: String,
     pub rx_buf: Vec<u8>,
@@ -38,7 +45,7 @@ pub struct WaylandState {
 }
 
 impl WaylandState {
-    pub fn new_daemon(db: ClipboardDb, verbose: bool) -> Self {
+    pub fn new_daemon(db: ClipboardDb, job_tx: mpsc::Sender<ClipboardJob>, verbose: bool) -> Self {
         Self {
             manager: None,
             manager_id: None,
@@ -46,6 +53,7 @@ impl WaylandState {
             seat_id: None,
             device: None,
             db: Some(Arc::new(Mutex::new(db))),
+            job_tx: Some(job_tx),
             verbose,
             target_mime: String::new(),
             rx_buf: Vec::new(),
@@ -64,6 +72,7 @@ impl WaylandState {
             seat_id: None,
             device: None,
             db: None,
+            job_tx: None,
             verbose,
             target_mime,
             rx_buf: Vec::new(),
