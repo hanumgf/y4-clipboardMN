@@ -1,5 +1,6 @@
 # --- Rust Artifacts ---
 /target/
+/.idea/
 Cargo.lock
 
 # --- Storage / Databases ---
