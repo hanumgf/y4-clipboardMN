@@ -93,5 +93,5 @@ y4-clipboard copy-to --id 42   # Restore a specific item via IPC
 
 GPL-3.0-or-later
 
-Copyright (c) 2024-2025 yukkkk1 (hanumgf)
+Copyright (c) 2026 yukkkk1 (hanumgf)
 
