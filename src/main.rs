@@ -1,6 +1,6 @@
 /*
  * y4-clipboardMN: A Wayland clipboard manager for power users.
- * Copyright (C) 2026  yukkkk1
+ * Copyright (C) 2026  yosana
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
