@@ -84,5 +84,5 @@ y4-clipboard copy-to --id 42   # IPC経由で特定のアイテムを復元
 
 GPL-3.0-or-later
 
-Copyright (c) 2026 yukkkk1 (hanumgf)
+Copyright (c) 2026 yosana (y0sh-dev)
 
