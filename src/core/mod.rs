@@ -1,4 +1,4 @@
-// Copyright (C) 2026 yukkkk1
+// Copyright (C) 2026 yosana
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // src/core/mod.rs
